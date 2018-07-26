@@ -62,7 +62,7 @@ if __name__ == "__main__":
 
     #get the number of measurements for each minute
     minute_number_for_each_row = (RAW_DATA[:, 0] / 60).astype(np.int)
-    measures_per_min = np.histogram(minute_number_for_each_row, np.arange(0, np.max(minute_number_for_each_row) + 1))[0]
+    measures_per_min = np.histogram(minute_number_for_each_row, np.arange(0, np.max(minute_number_for_each_row) + 2))[0]
 
     #Create the Summary Statistics
     output = [
