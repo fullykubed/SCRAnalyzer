@@ -31,14 +31,16 @@ if __name__ == "__main__":
     TCID = int(name_parts[1])
     TYPE = name_parts[3]
 
-    #Output File Checks
-    OUTPUT_FILE = Path(args.output)
-    if(not OUTPUT_FILE):
-        OUT_FILE = Path(args.output) if args.output else FILE.parent.joinpath(
+    #Output File Check
+    OUTPUT_FILE = None
+    if(not args.output):
+        OUTPUT_FILE = Path(args.output) if args.output else FILE.parent.joinpath(
             FILE.name.split(".")[0] + "-out.csv")
+    else:
+        OUTPUT_FILE = Path(args.output)
 
     if(not OUTPUT_FILE.suffix in [".csv", ".txt"]):
-        print("Error: Output file must either be of .txt .csv format!")
+        print("Error: Output file must either be of .txt or .csv format!")
         exit(1)
 
 
@@ -46,14 +48,14 @@ if __name__ == "__main__":
     #Col 1: TTP.SCR-Onset	Col 2: TTP.SCR-Amplitude
     RAW_DATA = None
     try:
-        RAW_DATA = np.loadtxt(FILE, skiprows=1, delimiter="\t")
+        RAW_DATA = np.loadtxt(FILE, skiprows=0 if args.no_header else 1, delimiter="\t")
     except Exception as e:
         print("Error: Unable to read the file. Make sure it is a 2 column txt file with tab delimiters.")
         print(e)
         exit(1)
 
     if not RAW_DATA.shape[1] == 2:
-        print("Error: Expected  2 columns in the input data. Columns should represent SCR-Onset and SCR-Amplitude. Given", RAW_DATA.shape[1], "columns.")
+        print("Error: Expected 2 columns in the input data. Columns should represent SCR-Onset and SCR-Amplitude. Given", RAW_DATA.shape[1], "columns.")
         exit(1)
 
 
