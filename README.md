@@ -70,3 +70,7 @@ These files can be found in the directory specified as an input argument.
 
 (2) The file will contain summary statistics about the input data underneath a header specifying
 the summary statistics generated. If processing multiple files, each TCID will have a unique row.
+
+(3) The program can be run multiple times and point to the same output files. New data will be appended
+to the old output data. If output data with a particular TCID already exists, the program will
+throw an error to ensure that the old TCID data is NOT overwritten.
