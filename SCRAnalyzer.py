@@ -2,74 +2,25 @@ import numpy as np
 import argparse
 from pathlib import Path
 
-#TODO validate input file format
 ACCEPTED_TYPES = ["TTP", "CDA"]
 
-if __name__ == "__main__":
+#########################################################################
+# Calculations
+#########################################################################
 
-    #Parser configuration
-    parser = argparse.ArgumentParser()
-    parser.add_argument("input_file", help="path to file to read raw data from (e.g., 'input.csv')")
-    parser.add_argument("-o", "--output", help="path to save extracted data (e.g., 'output.csv')")
-    parser.add_argument("-nh", "--no-header", help="use if the input data has no headers",action='store_true')
-    args = parser.parse_args()
+# Returns a 3d array of the summary statistics of the input data with d1=label, d2=data, d3=formatting
+def getStats(data, TCID):
 
-    #Input File Checks
-    FILE = Path(args.input_file)
-    if(not FILE.is_file()):
-        print("Error: '",FILE,"' does not exist!")
-        exit(1)
-
-    name_parts = FILE.name.split("_")
-    if(not name_parts[0] == "p" or not name_parts[1].isdigit() or not name_parts[2].lower() == "scrlist" or not name_parts[3].split(".")[0] in ACCEPTED_TYPES):
-        print("Error: Expected filename that looks like 'p_[#]_scrlist_[TPP/CDA].txt'; given: ", FILE.name)
-        exit(1)
-    elif(not FILE.suffix == ".txt"):
-        print("Error: Expected a .txt file; given:", FILE.suffix, " file.")
-        exit(1)
-
-    TCID = int(name_parts[1])
-    TYPE = name_parts[3]
-
-    #Output File Check
-    OUTPUT_FILE = None
-    if(not args.output):
-        OUTPUT_FILE = Path(args.output) if args.output else FILE.parent.joinpath(
-            FILE.name.split(".")[0] + "-out.csv")
-    else:
-        OUTPUT_FILE = Path(args.output)
-
-    if(not OUTPUT_FILE.suffix in [".csv", ".txt"]):
-        print("Error: Output file must either be of .txt or .csv format!")
-        exit(1)
-
-
-    #load input data in (row, column) index form
-    #Col 1: TTP.SCR-Onset	Col 2: TTP.SCR-Amplitude
-    RAW_DATA = None
-    try:
-        RAW_DATA = np.loadtxt(FILE, skiprows=0 if args.no_header else 1, delimiter="\t")
-    except Exception as e:
-        print("Error: Unable to read the file. Make sure it is a 2 column txt file with tab delimiters.")
-        print(e)
-        exit(1)
-
-    if not RAW_DATA.shape[1] == 2:
-        print("Error: Expected 2 columns in the input data. Columns should represent SCR-Onset and SCR-Amplitude. Given", RAW_DATA.shape[1], "columns.")
-        exit(1)
-
-
-
-    #get the number of measurements for each minute
-    minute_number_for_each_row = (RAW_DATA[:, 0] / 60).astype(np.int)
+    # get the number of measurements for each minute
+    minute_number_for_each_row = (data[:, 0] / 60).astype(np.int)
     measures_per_min = np.histogram(minute_number_for_each_row, np.arange(0, np.max(minute_number_for_each_row) + 2))[0]
 
-    #Create the Summary Statistics
-    output = [
-        ["TCID", TCID,  "%d"]       ,
-        ["TotalSCRs", RAW_DATA.shape[0], "%d"]   ,
-        ["SCRAmpMean", np.mean(RAW_DATA[:, 1]), "%.10f"],
-        ["SCRAmpSD", np.std(RAW_DATA[:, 1]), "%.10f"],
+    # Create the Summary Statistics
+    return [
+        ["TCID", TCID, "%d"],
+        ["TotalSCRs", data.shape[0], "%d"],
+        ["SCRAmpMean", np.mean(data[:, 1]), "%.10f"],
+        ["SCRAmpSD", np.std(data[:, 1]), "%.10f"],
         ["FileMin", np.max(minute_number_for_each_row) + 1, "%d"],
         ["SCRPerMinMean", np.mean(measures_per_min), "%.10f"],
         ["SCRPerMinSD", np.std(measures_per_min), "%.10f"],
@@ -77,11 +28,168 @@ if __name__ == "__main__":
         ["SCRPerMinMaximum", np.max(measures_per_min), "%d"]
     ]
 
-    np.savetxt(OUTPUT_FILE,
+
+#########################################################################
+# File and Argument Manipulation
+#########################################################################
+
+## Parses the command line arguments, performs preliminary error checking, and returns the flags and Python file
+## descriptors
+def getArguments():
+    
+    #Parser configuration
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input_file", nargs='+', help="a space-delineated list of paths to files to read raw data from (e.g., 'input.csv').")
+    parser.add_argument("output_directory", help="path to save extracted data")
+    parser.add_argument("-s", "--skip-errors", help="use flag to skip files with errors (rather than immediately terminating program)", action='store_true')
+    args = parser.parse_args()
+
+    SKIP = args.skip_errors
+    FILES = args.input_file
+    TCIDs = []
+    TYPEs = []
+    FILEs = []
+
+    for FILE_STRING in FILES:
+
+        # Input File Checks
+        FILE = Path(FILE_STRING)
+        error = validateFile(FILE, throwError=not SKIP)
+
+
+        # Print Warning
+        if error:
+            print("[Skipping ", FILE, "] Warning:", error)
+
+        # Add to the list of files (and metadata) to be processed
+        else:
+            name_parts = FILE.name.split("_")
+            TCIDs.append(int(name_parts[1]))
+            TYPEs.append(name_parts[3].split(".")[0])
+            FILEs.append(FILE)
+
+    
+    #Output File Mapping
+    OUTPUT_FILEs = {}
+    OUTPUT_FILEs["TTP"] = Path(args.output_directory, 'SCRSummary_TTP.txt')
+    OUTPUT_FILEs["CDA"] = Path(args.output_directory, 'SCRSummary_CDA.txt')
+
+    #Check for duplicate TCIDs
+    toRemove = []
+    for outputFileType, outputFile in OUTPUT_FILEs.items():
+        if(outputFile.exists()):
+            existingTCIDs = np.loadtxt(outputFile, delimiter=",", skiprows=1, usecols=(0), dtype=np.int)
+            for i, TCID in enumerate(TCIDs):
+                if TYPEs[i] == outputFileType and TCID in existingTCIDs:
+                    error = "Trying to parse file for TCID " + str(TCID) + " but this TCID is aleady present in the output file (" +  str(outputFile) + ")."
+                    if(SKIP):
+                        print("[Skipping TCID =", TCID, "] Warning:", error)
+                        toRemove.append(i)
+                    else:
+                        print("Error:", error)
+                        exit(1)
+    for i in sorted(toRemove, reverse=True):
+        del FILEs[i]
+        del TYPEs[i]
+        del TCIDs[i]
+
+    return FILEs, TCIDs, TYPEs, OUTPUT_FILEs, SKIP
+
+
+## Validates that the input files follow appropriate naming conventions
+def validateFile(file, throwError=True):
+    if (not file.is_file()):
+        error = "'" + str(file) + "' does not exist!"
+        if(throwError):
+            print("Error:", error)
+            exit(1)
+        else:
+            return error
+
+    name_parts = file.name.split("_")
+    if (not name_parts[0] == "p" or not name_parts[1].isdigit() or not name_parts[2].lower() == "scrlist" or not
+    name_parts[3].split(".")[0] in ACCEPTED_TYPES):
+
+        error = "Expected filename that looks like 'p_[#]_scrlist_[TPP/CDA].txt'; given: " + str(file.name)
+
+        if(throwError):
+            print("Error:", error)
+            exit(1)
+        else:
+            return error
+
+    elif (not file.suffix == ".txt"):
+
+        error = "Expected a .txt file; given a " + str(file.suffix) + " file."
+
+        if(throwError):
+            print("Error:", error)
+            exit(1)
+        else:
+            return error
+
+
+## Loads the raw input data into a numpy array
+def loadRawData(inputFile, throwError=True):
+    
+    #load input data in (row, column) index form
+    #Col 1: TTP.SCR-Onset	Col 2: TTP.SCR-Amplitude
+    RAW_DATA = None
+    try:
+        RAW_DATA = np.loadtxt(inputFile, skiprows=1, delimiter="\t")
+    except Exception as e:
+        error = "Unable to read the file (" + str(inputFile) + "). Make sure it is a 2 column txt file with tab delimiters."
+
+        if(throwError):
+            print("Error:", error)
+            exit(1)
+        else:
+            print("[Skipping", inputFile, "]:", error)
+            return None
+
+    if not RAW_DATA.shape[1] == 2:
+        error = "Expected 2 columns in the input data (" +  str(inputFile) + "). Columns should represent SCR-Onset and SCR-Amplitude. Given " + str(RAW_DATA.shape[1]) + " columns."
+
+        if(throwError):
+            print("Error:", error)
+            exit(1)
+        else:
+            print("[Skipping ", inputFile, "]:", error)
+            return None
+        
+    return RAW_DATA
+
+
+## Saves the output data either by creating a new file or appending to an existing one
+def saveData(outputFile, output):
+    if(outputFile.exists()):
+        with open(outputFile, 'ab') as file:
+            np.savetxt(file,
+                       [[col[1] for col in output]],
+                       delimiter=",",
+                       fmt=[col[2] for col in output])
+    else:
+        np.savetxt(outputFile,
                [[col[1] for col in output]],
                delimiter=",",
                header=','.join([col[0] for col in output]),
                fmt=[col[2] for col in output])
+
+
+
+#########################################################################
+# Driver
+#########################################################################
+
+if __name__ == "__main__":
+
+    FILEs, TCIDs, TYPEs, OUTPUT_FILEs, SKIP = getArguments()
+    for FILE, TCID, TYPE in zip(FILEs, TCIDs, TYPEs):
+        data = loadRawData(FILE, throwError=not SKIP)
+        if data is not None:
+            OUTPUT = getStats(data, TCID)
+            saveData(OUTPUT_FILEs[TYPE], OUTPUT)
+
 
 
 
