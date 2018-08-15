@@ -1,6 +1,7 @@
 import numpy as np
 import argparse
 from pathlib import Path
+import csv
 
 ACCEPTED_TYPES = ["TTP", "CDA"]
 
@@ -17,15 +18,15 @@ def getStats(data, TCID):
 
     # Create the Summary Statistics
     return [
-        ["TCID", TCID, "%d"],
-        ["TotalSCRs", data.shape[0], "%d"],
-        ["SCRAmpMean", np.mean(data[:, 1]), "%.10f"],
-        ["SCRAmpSD", np.std(data[:, 1]), "%.10f"],
-        ["FileMin", np.max(minute_number_for_each_row) + 1, "%d"],
-        ["SCRPerMinMean", np.mean(measures_per_min), "%.10f"],
-        ["SCRPerMinSD", np.std(measures_per_min), "%.10f"],
-        ["SCRPerMinMinimum", np.min(measures_per_min), "%d"],
-        ["SCRPerMinMaximum", np.max(measures_per_min), "%d"]
+        ["TCID", TCID, "{}"],
+        ["TotalSCRs", data.shape[0], "{}"],
+        ["SCRAmpMean", np.mean(data[:, 1]), "{:.10f}"],
+        ["SCRAmpSD", np.std(data[:, 1]), "{:.10f}"],
+        ["FileMin", np.max(minute_number_for_each_row) + 1, "{}"],
+        ["SCRPerMinMean", np.mean(measures_per_min), "{:.10f}"],
+        ["SCRPerMinSD", np.std(measures_per_min), "{:.10f}"],
+        ["SCRPerMinMinimum", np.min(measures_per_min), "{}"],
+        ["SCRPerMinMaximum", np.max(measures_per_min), "{}"]
     ]
 
 
@@ -64,7 +65,7 @@ def getArguments():
         # Add to the list of files (and metadata) to be processed
         else:
             name_parts = FILE.name.split("_")
-            TCIDs.append(int(name_parts[1]))
+            TCIDs.append(name_parts[1])
             TYPEs.append(name_parts[3].split(".")[0])
             FILEs.append(FILE)
 
@@ -78,7 +79,7 @@ def getArguments():
     toRemove = []
     for outputFileType, outputFile in OUTPUT_FILEs.items():
         if(outputFile.exists()):
-            existingTCIDs = np.loadtxt(outputFile, delimiter=",", skiprows=1, usecols=(0), dtype=np.int)
+            existingTCIDs = np.loadtxt(outputFile, delimiter=",", skiprows=1, usecols=(0), dtype=np.str)
             for i, TCID in enumerate(TCIDs):
                 if TYPEs[i] == outputFileType and TCID in existingTCIDs:
                     error = "Trying to parse file for TCID " + str(TCID) + " but this TCID is aleady present in the output file (" +  str(outputFile) + ")."
@@ -107,7 +108,7 @@ def validateFile(file, throwError=True):
             return error
 
     name_parts = file.name.split("_")
-    if (not name_parts[0] == "p" or not name_parts[1].isdigit() or not name_parts[2].lower() == "scrlist" or not
+    if (not name_parts[0] == "p" or not name_parts[1].replace('.', '', 1).isdigit() or not name_parts[2].lower() == "scrlist" or not
     name_parts[3].split(".")[0] in ACCEPTED_TYPES):
 
         error = "Expected filename that looks like 'p_[#]_scrlist_[TPP/CDA].txt'; given: " + str(file.name)
@@ -162,18 +163,17 @@ def loadRawData(inputFile, throwError=True):
 
 ## Saves the output data either by creating a new file or appending to an existing one
 def saveData(outputFile, output):
+    toSave = [option[2].format(option[1]) for option in output]
     if(outputFile.exists()):
-        with open(outputFile, 'ab') as file:
-            np.savetxt(file,
-                       [[col[1] for col in output]],
-                       delimiter=",",
-                       fmt=[col[2] for col in output])
+        with open(outputFile, 'a') as file:
+            writer = csv.writer(file, quoting=csv.QUOTE_NONE)
+            writer.writerow(toSave)
     else:
-        np.savetxt(outputFile,
-               [[col[1] for col in output]],
-               delimiter=",",
-               header=','.join([col[0] for col in output]),
-               fmt=[col[2] for col in output])
+        with open(outputFile, 'a') as file:
+            writer=csv.writer(file, quoting=csv.QUOTE_NONE)
+            writer.writerow([[col[1] for col in output]])
+            writer.writerow(toSave)
+
 
 
 
